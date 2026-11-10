@@ -1,3 +1,11 @@
+# Datasets
+data/raw/*
+
+# Local Databricks state and authentication
+.databricks/
+.bundle/
+.databrickscfg
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -218,3 +226,5 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+.databricks

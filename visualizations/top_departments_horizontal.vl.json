@@ -1,0 +1,74 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v6.json",
+  "mark": {
+    "type": "bar",
+    "cornerRadiusEnd": 4,
+    "tooltip": true
+  },
+  "data": {
+    "name": "databricks_query"
+  },
+  "width": "container",
+  "height": "container",
+  "autosize": {
+    "type": "fit",
+    "contains": "padding",
+    "resize": true
+  }, 
+  "padding": {
+    "left": 10,
+    "right": 20,
+    "top": 10,
+    "bottom": 10
+  },
+  "encoding": {
+    "y": {
+      "field": "department",
+      "type": "nominal",
+      "sort": "-x",
+      "title": null,
+      "axis": {
+        "labelLimit": 180,
+        "labelFontSize": 12,
+        "labelPadding": 8,
+        "ticks": false,
+        "domain": false
+      }
+    },
+    "x": {
+      "field": "revenue",
+      "type": "quantitative",
+      "title": "Retailer Revenue (source currency)",
+      "scale": {
+        "zero": true
+      },
+      "axis": {
+        "format": "~s",
+        "tickCount": 5,
+        "grid": true,
+        "labelFontSize": 11
+      }
+    },
+    "tooltip": [
+      {
+        "field": "department",
+        "type": "nominal",
+        "title": "Department"
+      },
+      {
+        "field": "revenue",
+        "type": "quantitative",
+        "title": "Retailer Revenue",
+        "format": ",.2f"
+      }
+    ]
+  },
+  "config": {
+    "view": {
+      "stroke": null
+    },
+    "bar": {
+      "continuousBandSize": 22
+    }
+  }
+}

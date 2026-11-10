@@ -1,0 +1,19 @@
+# This is a Declarative Automation Bundle definition for Retail-Analytics-Lakehouse.
+# The Databricks extension requires databricks.yml configuration file.
+# See https://docs.databricks.com/dev-tools/bundles/index.html for documentation.
+
+bundle:
+  name: Retail-Analytics-Lakehouse
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-2a24b770-41e6.cloud.databricks.com
+
+  ## Optionally, there could be 'staging' or 'prod' targets here.
+  #
+  # prod:
+  #   workspace:
+  #     host: https://dbc-2a24b770-41e6.cloud.databricks.com
