@@ -120,6 +120,8 @@ The following scripts are version-controlled:
 | `sql/21_silver_validation.sql` | Row/revenue reconciliation and product references |
 | `sql/30_gold.sql` | Weekly department sales model |
 | `sql/31_gold_validation.sql` | Silver-to-Gold reconciliation |
+| `sql/40_dashboard_queries.sql` | Business analytics queries |
+| `visualizations/top_departments_horizontal.vl.json` | Custom dashboard visualization |
 
 See [the data-quality report](docs/data_quality.md) for executed checks and limitations, and the [project proposal](docs/project_proposal.md) for the target production-oriented design.
 
