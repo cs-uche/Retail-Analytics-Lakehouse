@@ -19,7 +19,7 @@ CREATE OR REPLACE TABLE retail_analytics.bronze.transactions
 USING DELTA
 AS
 SELECT
-    *,
+    *
     ,_metadata.file_path AS _source_file
     ,current_timestamp() AS _ingested_at
 FROM read_files(
