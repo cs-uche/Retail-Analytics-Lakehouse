@@ -46,25 +46,36 @@ The original CSV release and the prepared `completejourney` R package are **not 
 
 ## 4. Current implemented architecture (MVP)
 
-```text
-The Complete Journey: transaction_data.csv, product.csv
-                |
-        Unity Catalog landing Volume
-                |
-     SQL read_files() / batch loads
-                v
-      Bronze Delta tables
- (original columns, _source_file, _ingested_at)
-                |
-     SQL cleaning and type conversion
-                v
-      Silver Delta tables
-                |
-  week + department aggregation
-                v
- gold.weekly_department_sales
-                |
-       Databricks AI/BI dashboard
+```mermaid
+
+flowchart TB
+    A["The Complete Journey<br/>transaction_data.csv + product.csv"]
+    B["Unity Catalog Landing Volume"]
+    C["SQL read_files()<br/>Batch Ingestion"]
+    D["Bronze Delta Tables<br/>Raw columns + source metadata"]
+    E["SQL Cleaning<br/>Type Conversion + Normalization"]
+    F["Silver Delta Tables<br/>Validated Transactions + Products"]
+    G["Weekly Department Aggregation<br/>Product Join"]
+    H["Gold<br/>weekly_department_sales"]
+    I["Databricks AI/BI Dashboard<br/>Retail Sales Performance"]
+
+    A --> B
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+    H --> I
+
+    classDef storage fill:#E8F1FA,stroke:#4A79A8,color:#17395C
+    classDef process fill:#F4F4F4,stroke:#888,color:#333
+    classDef output fill:#E5F2E9,stroke:#4B9666,color:#215A39
+
+    class B,D,F,H storage
+    class C,E,G process
+    class I output
+
 ```
 
 **Current delivery facts:** approximately 2.6 million receipt lines; Bronze-to-Silver and Silver-to-Gold transaction/revenue reconciliation passed; dashboard reports total retailer revenue, unique baskets, top-two revenue concentration, top departments, weekly trends, and department detail. All transformations are currently SQL batch refreshes. There is not yet an automated job dependency graph.
@@ -131,31 +142,65 @@ erDiagram
 
 ## 6. Target operational architecture (future state)
 
-```text
-Historical source CSVs + deterministic event batches
-                    |
-             Landing Volume
-                    |
-       Auto Loader / checkpoints
-                    v
-              Bronze Delta
-     raw events + provenance + ingestion audit
-                    |
-     CDC ordering / dedup / quarantine / MERGE
-                    v
-              Silver Delta
- clean transactions + dim_product_scd2 + dim_household_scd2
-                    |
-       Fact/dimension joins and checks
-                    v
-               Gold Delta
-   fact_sales + retail marts + household/campaign features
-                    |
-       BI dashboards / analytical queries
+```mermaid
 
-        Databricks Jobs — orchestration and retries
-        GitHub Actions — tests and bundle deployment
-        Unity Catalog — governance and lineage
+
+flowchart TB
+    subgraph Sources["Data Sources"]
+        A["Historical Grocery CSVs"]
+        B["Deterministic CDC Events"]
+    end
+
+    subgraph Processing["Lakehouse Data Pipeline"]
+        C["Unity Catalog<br/>Landing Volume"]
+        D["Auto Loader<br/>Persistent Checkpoints"]
+        E["Bronze Delta<br/>Raw Events + Provenance"]
+        F["CDC Ordering + Deduplication<br/>Validation + Delta MERGE"]
+        G["Silver Delta<br/>Clean Facts + SCD2 Dimensions"]
+        H["Historical Joins<br/>Fact and Dimension Checks"]
+        I["Gold Delta<br/>Fact Sales + Retail Marts"]
+    end
+
+    subgraph Consumption["Data Consumption"]
+        J["BI Dashboards<br/>Analytical Queries"]
+        K["Household + Campaign Features"]
+    end
+
+    subgraph Operations["Operational Services"]
+        L["Databricks Jobs<br/>Orchestration + Retries"]
+        M["GitHub Actions<br/>Testing + Deployment"]
+        N["Unity Catalog<br/>Governance + Lineage"]
+        Q["Quarantine + Audit Tables"]
+    end
+
+    A --> C
+    B --> C
+    C --> D
+    D --> E
+    E --> F
+    F --> G
+    G --> H
+    H --> I
+    I --> J
+    I --> K
+
+    F -.-> Q
+    L -.-> D
+    L -.-> F
+    L -.-> H
+    M -.-> L
+    N -.-> E
+    N -.-> G
+    N -.-> I
+
+    classDef data fill:#E8F1FA,stroke:#4A79A8,color:#17395C
+    classDef operations fill:#F0EAF8,stroke:#8863B0,color:#4F3471
+    classDef output fill:#E5F2E9,stroke:#4B9666,color:#215A39
+
+    class C,D,E,F,G,H,I data
+    class L,M,N,Q operations
+    class J,K output
+
 ```
 
 ### Bronze design
@@ -264,9 +309,54 @@ These techniques are **planned**, not claims about the current MVP.
 
 - Define a Databricks Job in a bundle resource file such as `resources/loyalty_job.yml` **when implemented**, with ordered tasks:
 
-  ```text
-  ingest_bronze → validate_bronze → build_silver → validate_silver
-                 → build_gold → validate_gold
+  ```mermaid
+
+    flowchart TB
+        A["Start Databricks Job"]
+        B["Ingest Bronze"]
+        C["Validate Bronze"]
+        D{"Quality Checks Pass?"}
+        E["Build Silver"]
+        F["Validate Silver"]
+        G{"Quality Checks Pass?"}
+        H["Build Gold"]
+        I["Validate Gold"]
+        J{"Reconciliation Passes?"}
+        K["Pipeline Successful"]
+        L["Fail Job + Capture Error"]
+        M["Investigate + Recover<br/>Retry or Backfill"]
+
+        A --> B
+        B --> C
+        C --> D
+
+        D -->|Yes| E
+        D -->|No| L
+
+        E --> F
+        F --> G
+
+        G -->|Yes| H
+        G -->|No| L
+
+        H --> I
+        I --> J
+
+        J -->|Yes| K
+        J -->|No| L
+
+        L --> M
+
+        classDef task fill:#E8F1FA,stroke:#4A79A8,color:#17395C
+        classDef decision fill:#FFF0D9,stroke:#C38A38,color:#714A15
+        classDef success fill:#E5F2E9,stroke:#4B9666,color:#215A39
+        classDef failure fill:#FCE9E9,stroke:#C45D5D,color:#812E2E
+
+        class B,C,E,F,H,I task
+        class D,G,J decision
+        class K success
+        class L,M failure
+
   ```
 
 - Add retriable tasks, monitoring and a `docs/runbook.md` documenting recovery/backfills **after those artifacts exist**. The current `databricks.yml` provides a development target but no job-resource dependency graph.

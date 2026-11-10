@@ -4,7 +4,7 @@
 
 An end-to-end retail analytics lakehouse built with **Databricks, Delta Lake, Unity Catalog and SQL**, transforming 2.6 million grocery transaction records into validated analytical datasets.
 
-The project uses dunnhumby's *The Complete Journey* dataset to demonstrate how retail organizations can ingest, validate, transform and analyze sales data using a Bronze–Silver–Gold architecture.The initial release processes **2,595,732 receipt lines**, reconciles **8,057,463.08 in retailer revenue** without a difference between Silver and Gold, and powers an interactive Databricks sales-performance dashboard. The ingestion and transformations currently use **manually executed batch SQL**, not a scheduled or streaming pipeline.
+The project uses dunnhumby's *The Complete Journey* dataset to demonstrate how retail organizations can ingest, validate, transform and analyze sales data using a Bronze–Silver–Gold architecture. The initial release processes **2,595,732 receipt lines**, reconciles **8,057,463.08 in retailer revenue** without a difference between Silver and Gold, and powers an interactive Databricks sales-performance dashboard. The ingestion and transformations currently use **manually executed batch SQL**, not a scheduled or streaming pipeline.
 
 ![Retail sales performance dashboard](docs/images/retail_sales_dashboard.jpeg)
 
@@ -40,28 +40,48 @@ The dataset uses relative transaction days and weeks; visualizations label the x
 
 ## Implemented architecture
 
-```text
-The Complete Journey CSV files (transactions, products)
-                            |
-                            v
-    /Volumes/retail_analytics/landing/raw/   [Unity Catalog Volume]
-                            |
-                   Batch SQL read_files()
-                            v
-      retail_analytics.bronze                 [Delta tables]
-      Raw source columns + file path + ingestion timestamp
-                            |
-             Normalization / decimal typing
-                            v
-      retail_analytics.silver                 [Delta tables]
-      Cleaned transactions and products
-                            |
-         Weekly department aggregation and join
-                            v
-      retail_analytics.gold.weekly_department_sales
-                            |
-                            v
-      Databricks AI/BI Sales Performance Dashboard
+```mermaid
+
+
+flowchart TB
+    A["The Complete Journey<br/>Transactions + Products"]
+    B["Landing Volume<br/>retail_analytics.landing.raw"]
+
+    subgraph Bronze["Bronze Layer"]
+        C["bronze.transactions"]
+        D["bronze.products"]
+    end
+
+    subgraph Silver["Silver Layer"]
+        E["silver.transactions"]
+        F["silver.products"]
+    end
+
+    subgraph Gold["Gold Layer"]
+        G["gold.weekly_department_sales"]
+    end
+
+    H["Retail Sales Performance Dashboard"]
+
+    A --> B
+    B -->|"Batch read_files()"| C
+    B -->|"Batch read_files()"| D
+    C -->|"Clean + Cast"| E
+    D -->|"Normalize Attributes"| F
+    E -->|"Weekly Aggregation"| G
+    F -->|"Department Join"| G
+    G --> H
+
+    classDef bronze fill:#F8E5D6,stroke:#B57543,color:#78451F
+    classDef silver fill:#E7EDF2,stroke:#798A99,color:#354757
+    classDef gold fill:#FFF1C7,stroke:#C09B39,color:#715918
+    classDef dashboard fill:#E5F2E9,stroke:#4B9666,color:#215A39
+
+    class C,D bronze
+    class E,F silver
+    class G gold
+    class H dashboard
+
 ```
 
 The catalog also contains separate `landing`, `bronze`, `silver`, and `gold` schemas. The initial SQL uses `CREATE OR REPLACE TABLE` batch refreshes. **Auto Loader, CDC, SCD Type 2, scheduling, and automated quality gates are planned, not yet implemented.**
@@ -146,7 +166,7 @@ The existing `databricks.yml` provides a development bundle configuration but **
 | Initial source acquisition and inspection | Complete for the two loaded sources |
 | Deterministic daily-feed generator | Planned |
 | Bronze → Silver → Gold batch pipeline and reconciliation | Complete |
-| Revenue-performance dashboard | Built; publishing and final artifact export may be pending |
+| Revenue-performance dashboard | Built and Published |
 | Incremental ingestion, CDC, SCD Type 2 and replay tests | Planned |
 | Databricks Jobs, automated quality gates and GitHub Actions | Planned |
 | Loyalty / campaign models and performance benchmarking | Planned |
@@ -158,3 +178,9 @@ See [Project Proposal](docs/project_proposal.md) for milestones, acceptance crit
 - [dunnhumby: The Complete Journey](https://www.dunnhumby.com/source-files/)
 - [Databricks CLI documentation](https://docs.databricks.com/aws/en/dev-tools/cli/)
 - [Databricks dashboard sharing](https://docs.databricks.com/aws/en/dashboards/share/share)
+
+## Author
+
+**Sopuruchi Chisom** | [LinkedIn](https://linkedin.com/in/sopuruchi-chisom) | [GitHub](https://github.com/cs-uche)
+
+**[LICENSE](./LICENSE)**

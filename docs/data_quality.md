@@ -116,43 +116,36 @@ This check supports completeness of the initial Gold aggregation and confirms th
 **Do not sum per-department `distinct_baskets` across departments** to compute overall unique purchase occasions: a single basket can contain products from several departments. For a department-level detail table, baskets are distinct within each department, which is a different measure from the overall total.
 
 ## 5. Key Findings and Interpretation
-1. Source integrity and completeness
 
+**1. Source integrity and completeness**  
 The initial batch successfully ingested 2,595,732 transaction records into Bronze without row-count discrepancies. The validation checks identified no null transaction business keys, negative quantities, negative sales values or rescued records.
 
 Bronze preserves source records and ingestion metadata for traceability. No business-level deduplication or filtering was applied during the initial load.
 
-2. Product master integrity
-
+**2. Product master integrity**  
 All product identifiers in the Bronze product table were unique. In addition, every transaction's product_id matched a product in the Silver product master.
 
 These results support the reliability of product-based analytical joins, although product descriptions and department completeness require further validation.
 
-3. Transformation accuracy
-
+**3. Transformation accuracy**  
 The Bronze-to-Silver transformation preserved all 2,595,732 transaction records.
 
 Converting monetary fields from DOUBLE to DECIMAL(18,2) produced a reconciled retailer revenue total of 8,057,463.08, with no aggregate difference between Bronze and Silver.
 
 No null values were introduced into the six tested monetary and identifier fields.
 
-4. Gold analytical integrity
-
+**4. Gold analytical integrity**  
 The Silver-to-Gold reconciliation confirmed identical aggregate receipt-line counts and retailer revenue totals across both layers.
 
 The results are consistent with the validated product relationships and support using gold.weekly_department_sales for the initial retail performance dashboard.
 
-5. Business insights supported by the data
-
+**5. Business insights supported by the data**  
 Grocery generated approximately 50.8% of retailer revenue, while Grocery and Drug GM together accounted for approximately 63.9%.
 
 The data also revealed potential measurement inconsistencies in reported quantities for Kiosk-Gas and Misc Sales Transactions. These warrant investigation before presenting cross-department units-sold comparisons.
 
-6. Reliability limitations
-
+**6. Reliability limitations**  
 The validation results establish the correctness of the executed checks for the initial batch. They do not yet demonstrate incremental processing, idempotent updates, historical dimension accuracy, automated quality enforcement or recovery from pipeline failures.
-
-This restores the original report's clear interpretation while incorporating the new Gold-level evidence.
 
 ## 6. Open data-quality investigations
 
