@@ -1,183 +1,160 @@
 # Grocery Retail & Loyalty Lakehouse
 
-> **Status:** In progress — environment setup and initial data engineering work.
+> **Status:** Version 1 — Initial batch pipeline implemented and validated.
 
-A Databricks and Delta Lake portfolio project that transforms grocery loyalty data into a medallion lakehouse, with incremental ingestion, historically accurate dimensional models, analytics-ready sales tables, and an eventual household feature mart.
+An end-to-end retail analytics lakehouse built with **Databricks, Delta Lake, Unity Catalog and SQL**, transforming 2.6 million grocery transaction records into validated analytical datasets.
 
-## Project goals
+The project uses dunnhumby's *The Complete Journey* dataset to demonstrate how retail organizations can ingest, validate, transform and analyze sales data using a Bronze–Silver–Gold architecture.The initial release processes **2,595,732 receipt lines**, reconciles **8,057,463.08 in retailer revenue** without a difference between Silver and Gold, and powers an interactive Databricks sales-performance dashboard. The ingestion and transformations currently use **manually executed batch SQL**, not a scheduled or streaming pipeline.
 
-- Ingest grocery transactions, product master data, and household demographics.
-- Build **Bronze → Silver → Gold** Delta tables with PySpark and SQL.
-- Simulate **change data capture (CDC)** for product/household changes and transaction corrections; the historical source files are not themselves CDC logs.
-- Implement **SCD Type 2** dimensions and time-aware fact-to-dimension joins.
-- Validate data quality, replay safety, and reconciliation between source and target.
-- Orchestrate Databricks jobs and introduce CI/CD after the core pipeline works.
+![Retail sales performance dashboard](docs/images/retail_sales_dashboard.jpeg)
 
-This is an implementation roadmap, **not a claim that these features are already complete**.
+> Dashboard screenshot captured during development. The Databricks published dashboard requires appropriate account access; this repository provides a public view of the outputs. **[Databricks Dashboard Link](https://dbc-2a24b770-41e6.cloud.databricks.com/dashboardsv3/01f1dcd724271524bcd953504697f917/published?o=7474644044205981)**
 
-## Dataset
+## Business problem
 
-We plan to use [dunnhumby — The Complete Journey](https://www.dunnhumby.com/source-files/), a grocery loyalty transaction dataset. The original CSV release and the prepared `completejourney` R package contain *different* transaction counts and schemas; select one release and document its exact files before enforcing row-count assertions.
+Retail category managers and operations analysts need reliable answers to three questions:
 
-- [Original source files](https://www.dunnhumby.com/source-files/)
-- [Prepared R-package dataset](https://bradleyboehmke.github.io/completejourney/)
+1. Which departments contribute most to retailer revenue?
+2. How does departmental revenue vary across the dataset's observation weeks?
+3. How do revenue concentration and basket activity differ across departments?
 
-Do not commit raw dataset files, credentials, or personal access tokens. Store source data in the Databricks landing Volume.
+The dashboard answers these questions with **revenue and basket KPIs**, a **top-department ranking**, **weekly revenue trends**, and a **department detail table**. Retailer revenue is not necessarily the customer's out-of-pocket spending after manufacturer coupon reimbursement.
 
-## Intended architecture
 
-```text
-External grocery CSV files + deterministic synthetic CDC events
-                        |
-                        v
-        retail_analytics.landing.raw (Volume)
-                        |
-                Auto Loader / Spark
-                        v
-         retail_analytics.bronze (Delta)
-                        |
-         Cleaning, deduplication, CDC,
-         SCD2 history, quality checks
-                        v
-         retail_analytics.silver (Delta)
-                        |
-         Facts, dimensions, aggregates
-                        v
-          retail_analytics.gold (Delta)
-                        |
-            SQL / BI / ML features
-```
+## Verified results
 
-Unity Catalog layout:
+| Metric | Initial batch result |
+|---|---:|
+| Receipt lines processed | 2,595,732 |
+| Distinct purchase baskets | 276,484 |
+| Total retailer revenue | 8,057,463.08 (source currency) |
+| Silver ↔ Gold receipt-line difference | 0 |
+| Silver ↔ Gold revenue difference | 0.00 |
+| Transaction lines with unmatched product IDs | 0 |
+| Grocery share of total retailer revenue | ~50.8% |
+| Grocery + Drug GM combined revenue share | ~63.9% |
+
+**Interpreting the metrics:** A `basket_id` identifies a purchase occasion; a receipt line is one row representing a purchased product on that occasion. Overall basket counts are computed with `COUNT(DISTINCT basket_id)` on the transaction table, **not** by summing distinct basket counts by department, which can double-count baskets containing several departments. The published dashboard rounds values for display.
+
+The dataset uses relative transaction days and weeks; visualizations label the x-axis **Transaction Week** rather than pretending to have calendar dates. The data dictionary does not establish CAD as the currency, so results here use **source currency**.
+
+## Implemented architecture
 
 ```text
-retail_analytics                  # Project catalog
-├── landing
-│   └── raw                       # Managed Volume for files
-├── bronze                        # Raw Delta tables
-├── silver                        # Cleaned / historically tracked tables
-└── gold                          # Analytical models
+The Complete Journey CSV files (transactions, products)
+                            |
+                            v
+    /Volumes/retail_analytics/landing/raw/   [Unity Catalog Volume]
+                            |
+                   Batch SQL read_files()
+                            v
+      retail_analytics.bronze                 [Delta tables]
+      Raw source columns + file path + ingestion timestamp
+                            |
+             Normalization / decimal typing
+                            v
+      retail_analytics.silver                 [Delta tables]
+      Cleaned transactions and products
+                            |
+         Weekly department aggregation and join
+                            v
+      retail_analytics.gold.weekly_department_sales
+                            |
+                            v
+      Databricks AI/BI Sales Performance Dashboard
 ```
 
-Landing files will be accessible inside Databricks at `/Volumes/retail_analytics/landing/raw/`.
+The catalog also contains separate `landing`, `bronze`, `silver`, and `gold` schemas. The initial SQL uses `CREATE OR REPLACE TABLE` batch refreshes. **Auto Loader, CDC, SCD Type 2, scheduling, and automated quality gates are planned, not yet implemented.**
 
-## Development setup
+## Data sources
 
-### Requirements
+- **Publisher:** [dunnhumby — The Complete Journey](https://www.dunnhumby.com/source-files/), original CSV release.
+- **Loaded sources:** `transaction_data.csv` and `product.csv`.
+- **Later phases:** Household demographics, campaigns, coupons, and simulated change events. The source archive is historical data, not a live CDC stream.
 
-- Python 3.11 or 3.12 and `pip`
-- Git
-- A Databricks workspace (Free Edition is sufficient for initial work)
-- **Modern Databricks CLI** (standalone executable, not the legacy Python package `databricks-cli`)
+The source is described as a *representation* of approximately two years of household shopping activity. Do not interpret it as a live production feed or assume all measures are comparable across departments. Raw source files are **not** redistributed here; obtain them from the publisher, subject to applicable terms.
 
-> **Shell distinction:** Git Bash on Windows is not Linux. `uname -s` usually reports `MINGW...` in Git Bash and `Linux` inside WSL2/Ubuntu. Follow the appropriate section below. You do **not** need to switch to WSL merely to use the Databricks CLI.
+## Dashboard and analytical model
 
-### Option A — Native Linux / Ubuntu / WSL2
+**Gold table:** `retail_analytics.gold.weekly_department_sales`  
+**Grain:** one row per `(week_no, department)`.
 
-Install the modern Databricks CLI in a Linux terminal:
+The dashboard contains:
 
-```bash
-sudo apt update
-sudo apt install -y curl unzip
+- **KPIs:** total retailer revenue, unique baskets, top-two-department revenue share.
+- **Top 10 departments:** ranked by retailer revenue (horizontal bar chart).
+- **Weekly performance:** revenue across the five leading departments (line chart).
+- **Department detail:** revenue, revenue share, department-specific baskets, receipt lines, and revenue per basket.
 
-# Inspect the installer before running it, if desired:
-# curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh
+**Known interpretation caveats:** `KIOSK-GAS` and `MISC SALES TRAN` have unusually large `quantity` totals compared with their revenue. Unit-of-measure compatibility has not been established, so no all-department units-sold KPI is presented. An `UNMAPPED` department appears with zero aggregate revenue/units and still needs investigation; zero unmatched product IDs does not prove every product has a populated department.
 
-curl -fsSL https://raw.githubusercontent.com/databricks/setup-cli/main/install.sh | sudo sh
-databricks version
-```
+## Quality and reproducibility
 
-The installer normally places the executable at `/usr/local/bin/databricks`.
+The following scripts are version-controlled:
 
-Create an independent **Linux** virtual environment and install the pinned Python dependencies:
+| File | Purpose |
+|---|---|
+| `sql/10_bronze.sql` | Load transactions and products to Bronze |
+| `sql/11_bronze_validation.sql` | Bronze structural checks |
+| `sql/20_silver.sql` | Clean and type transactions and products |
+| `sql/21_silver_validation.sql` | Row/revenue reconciliation and product references |
+| `sql/30_gold.sql` | Weekly department sales model |
+| `sql/31_gold_validation.sql` | Silver-to-Gold reconciliation |
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-python -m pip install --upgrade pip
-python -m pip install -r requirements-lock.txt
-```
+See [the data-quality report](docs/data_quality.md) for executed checks and limitations, and the [project proposal](docs/project_proposal.md) for the target production-oriented design.
 
-**Note:** A `.venv` created under Windows (with `Scripts/`) cannot be reused inside Linux (which uses `bin/`). Recreate it inside WSL if you switch environments. The `requirements-lock.txt` file is a pip freeze snapshot; a Windows-generated lock may need adjustments for Linux-specific packages.
+### Reproduce the initial batch
 
-### Option B — Windows with Git Bash (existing local setup)
-
-**Recommended if you already have a functioning Windows `.venv`.** Install the **Windows** Databricks CLI in PowerShell:
-
-```powershell
-winget install --id Databricks.DatabricksCLI -e
-```
-
-Restart Git Bash to refresh `PATH`, then verify:
-
-```bash
-databricks version
-source .venv/Scripts/activate
-python -m pip install -r requirements-lock.txt
-```
-
-The Windows CLI works from Git Bash because Git Bash can run Windows executables. The Linux CLI binary does **not** run directly in Git Bash.
-
-### Python dependencies and reproducibility
-
-Python dependencies are defined in `pyproject.toml`. For the current pip workflow:
-
-```bash
-# Run in an active project virtual environment:
-python -m pip install -e ".[dev]"
-
-# Refresh the snapshot after deliberately changing dependencies:
-python -m pip freeze --exclude-editable > requirements-lock.txt
-
-# Verify:
-python -m pytest --version
-python -m ruff --version
-```
-
-Commit `pyproject.toml` and `requirements-lock.txt`; do **not** commit the `.venv/` directory. The modern Databricks CLI is a separate **system tool**, so it does not belong in pip requirements. For stricter platform-independent reproducibility later, generate OS-specific lock files or adopt a dedicated lock workflow.
-
-### Databricks authentication
-
-Copy your Databricks workspace **base URL** from the browser (for example `https://dbc-xxxx.cloud.databricks.com`). Authenticate **from the same machine or OS environment where you installed the CLI**:
-
-```bash
-databricks auth login --host https://YOUR-WORKSPACE-URL --profile retail-dev
-databricks auth profiles
-databricks current-user me --profile retail-dev
-databricks catalogs list --profile retail-dev
-```
-
-If OAuth fails, confirm you are using a fresh sign-in URL and that the CLI can receive the localhost callback. Local Windows CLI authentication avoids the extra GitHub Codespaces forwarded-port layer. Never commit `~/.databrickscfg`, OAuth tokens, PATs, or secrets.
-
-### Unity Catalog initialization
-
-In Databricks **SQL Editor**, run:
+1. Obtain the original dunnhumby source files and upload `transaction_data.csv` and `product.csv` into `/Volumes/retail_analytics/landing/raw/`.
+2. In Databricks SQL Editor, use a SQL warehouse and run the catalog/schema/volume initialization statements below if not already provisioned.
+3. Run **the transformation scripts in order**: `10_bronze.sql`, `20_silver.sql`, `30_gold.sql`.
+4. Run the validation scripts `11_bronze_validation.sql`, `21_silver_validation.sql`, and `31_gold_validation.sql` at their corresponding stages; review results before continuing. Validation queries currently **report** metrics but do not automatically fail a job.
+5. Build the dashboard from the Gold table and related SQL datasets; the dashboard definition can be exported from Databricks as `.lvdash.json` for future version control.
 
 ```sql
 CREATE CATALOG IF NOT EXISTS retail_analytics;
-
 CREATE SCHEMA IF NOT EXISTS retail_analytics.landing;
 CREATE SCHEMA IF NOT EXISTS retail_analytics.bronze;
 CREATE SCHEMA IF NOT EXISTS retail_analytics.silver;
 CREATE SCHEMA IF NOT EXISTS retail_analytics.gold;
-
 CREATE VOLUME IF NOT EXISTS retail_analytics.landing.raw;
-
-SHOW SCHEMAS IN retail_analytics;
-SHOW VOLUMES IN retail_analytics.landing;
 ```
 
-## Implementation roadmap
+### Local development prerequisites
 
-- [ ] Milestone 0 — Confirm local Python environment, Databricks CLI login, and Unity Catalog structure.
-- [ ] Milestone 1 — Download and profile source data; build deterministic daily source feeds.
-- [ ] Milestone 2 — Ingest Bronze Delta tables; build minimal Silver and Gold sales models with reconciliation.
-- [ ] Milestone 3 — Add CDC handling, product/household SCD2 history, idempotency and recovery tests.
-- [ ] Milestone 4 — Build loyalty/campaign analytics, household features, CI/CD and a runbook.
-- [ ] Milestone 5 — Benchmark performance and document verifiable results.
+- Python 3.11 or 3.12, Git, and access to a Databricks workspace / SQL warehouse.
+- Modern standalone Databricks CLI, installed separately from Python packages.
+- Python packages defined by `pyproject.toml` with a `requirements-lock.txt` snapshot.
+
+**Windows with Git Bash:** install the Windows CLI from PowerShell with `winget install --id Databricks.DatabricksCLI -e`, restart your terminal, and activate `.venv` using `source .venv/Scripts/activate`.
+
+**Linux / WSL:** follow the [official Databricks CLI installation instructions](https://docs.databricks.com/aws/en/dev-tools/cli/install); Linux virtual environments use `source .venv/bin/activate` and cannot reuse a Windows `.venv`.
+
+```bash
+python -m pip install -e ".[dev]"
+databricks auth login --host https://YOUR-WORKSPACE-URL --profile retail-dev
+databricks current-user me --profile retail-dev
+```
+
+The existing `databricks.yml` provides a development bundle configuration but **does not yet define orchestration jobs**. Use your own workspace host or authenticated profile. Never commit credentials, `~/.databrickscfg`, raw source datasets, or local `.venv` files.
+
+## Current scope and next milestones
+
+| Workstream | Status |
+|---|---|
+| Development workspace, Unity Catalog and landing Volume | Complete |
+| Initial source acquisition and inspection | Complete for the two loaded sources |
+| Deterministic daily-feed generator | Planned |
+| Bronze → Silver → Gold batch pipeline and reconciliation | Complete |
+| Revenue-performance dashboard | Built; publishing and final artifact export may be pending |
+| Incremental ingestion, CDC, SCD Type 2 and replay tests | Planned |
+| Databricks Jobs, automated quality gates and GitHub Actions | Planned |
+| Loyalty / campaign models and performance benchmarking | Planned |
+
+See [Project Proposal](docs/project_proposal.md) for milestones, acceptance criteria and design trade-offs.
 
 ## References
 
-- [Install or update the modern Databricks CLI](https://docs.databricks.com/aws/en/dev-tools/cli/install)
-- [Databricks CLI authentication](https://docs.databricks.com/aws/en/dev-tools/cli/authentication)
-- [The Complete Journey](https://www.dunnhumby.com/source-files/)
+- [dunnhumby: The Complete Journey](https://www.dunnhumby.com/source-files/)
+- [Databricks CLI documentation](https://docs.databricks.com/aws/en/dev-tools/cli/)
+- [Databricks dashboard sharing](https://docs.databricks.com/aws/en/dashboards/share/share)
